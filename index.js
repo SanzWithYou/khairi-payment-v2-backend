@@ -9,22 +9,29 @@ require('dotenv').config();
 const app = express();
 const PORT = process.env.PORT || 3000;
 
+// Log environment variables (tanpa password)
+console.log('Environment Variables:');
+console.log('DB_HOST:', process.env.DB_HOST);
+console.log('DB_PORT:', process.env.DB_PORT);
+console.log('DB_USER:', process.env.DB_USER);
+console.log('DB_NAME:', process.env.DB_NAME);
+console.log('DB_SSL:', process.env.DB_SSL);
+console.log('S3_BUCKET:', process.env.S3_BUCKET);
+
 // Resend Email
 const resend = new Resend(process.env.RESEND_API_KEY);
 
 // CORS - Perbarui untuk mendukung multiple origins
 const allowedOrigins = [
-  process.env.CORS_ORIGIN || 'https://khairi-payment-v2.vercel.app',
-  'http://localhost:4321', // Untuk development lokal
-  'http://localhost:3000', // Untuk development lokal
+  'https://khairi-payment-v2.vercel.app',
+  'http://localhost:4321',
+  'http://localhost:3000',
 ];
 
 app.use(
   cors({
     origin: function (origin, callback) {
-      // Allow requests with no origin (like mobile apps or curl requests)
       if (!origin) return callback(null, true);
-
       if (allowedOrigins.indexOf(origin) !== -1) {
         return callback(null, true);
       } else {
@@ -47,36 +54,59 @@ const upload = multer({
   limits: { fileSize: 5 * 1024 * 1024 },
 });
 
-// PostgreSQL Client
-const db = new Client({
-  user: process.env.DB_USER,
-  password: process.env.DB_PASS,
-  host: process.env.DB_HOST,
-  port: process.env.DB_PORT,
-  database: process.env.DB_NAME,
-  ssl: process.env.DB_SSL === 'true' ? { rejectUnauthorized: false } : false,
-});
+// PostgreSQL Client dengan retry logic
+let db;
+let dbConnectionRetries = 0;
+const maxDbRetries = 5;
 
-db.connect()
-  .then(() => console.log('Connected to PostgreSQL database'))
-  .catch((err) => console.error('Connection error', err.stack));
+async function connectDb() {
+  try {
+    db = new Client({
+      user: process.env.DB_USER,
+      password: process.env.DB_PASS,
+      host: process.env.DB_HOST,
+      port: parseInt(process.env.DB_PORT) || 5432,
+      database: process.env.DB_NAME,
+      ssl:
+        process.env.DB_SSL === 'true' ? { rejectUnauthorized: false } : false,
+    });
 
-// Create table if not exists
-db.query(
-  `
-  CREATE TABLE IF NOT EXISTS payments (
-    id SERIAL PRIMARY KEY,
-    name TEXT NOT NULL,
-    phone_number TEXT NOT NULL,
-    payment_method TEXT NOT NULL,
-    reason TEXT NOT NULL,
-    proof_url TEXT NOT NULL,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-  );
-`
-)
-  .then(() => console.log('Payments table ready'))
-  .catch((err) => console.error('Table creation error', err.stack));
+    await db.connect();
+    console.log('✅ Connected to PostgreSQL database');
+
+    // Create table if not exists
+    await db.query(`
+      CREATE TABLE IF NOT EXISTS payments (
+        id SERIAL PRIMARY KEY,
+        name TEXT NOT NULL,
+        phone_number TEXT NOT NULL,
+        payment_method TEXT NOT NULL,
+        reason TEXT NOT NULL,
+        proof_url TEXT NOT NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      );
+    `);
+    console.log('✅ Payments table ready');
+
+    dbConnectionRetries = 0; // Reset counter on successful connection
+  } catch (err) {
+    console.error('❌ Database connection error:', err.message);
+    dbConnectionRetries++;
+
+    if (dbConnectionRetries < maxDbRetries) {
+      console.log(
+        `Retrying database connection in 5 seconds... (${dbConnectionRetries}/${maxDbRetries})`
+      );
+      setTimeout(connectDb, 5000);
+    } else {
+      console.error('❌ Max database connection retries reached. Exiting...');
+      process.exit(1);
+    }
+  }
+}
+
+// Initial database connection
+connectDb();
 
 // S3 / Leapcell Object Storage
 const s3 = new S3Client({
@@ -86,7 +116,7 @@ const s3 = new S3Client({
     accessKeyId: process.env.S3_KEY_ID,
     secretAccessKey: process.env.S3_KEY_SECRET,
   },
-  forcePathStyle: true, // Penting untuk Leapcell
+  forcePathStyle: true,
 });
 
 // Upload Payment
@@ -158,7 +188,7 @@ app.post('/api/upload-payment', upload.single('proof'), async (req, res) => {
       },
     });
   } catch (err) {
-    console.error(err);
+    console.error('Upload payment error:', err);
     res.status(500).json({ error: 'Server error', detail: err.message });
   }
 });
@@ -217,4 +247,7 @@ app.get('/health', async (req, res) => {
 });
 
 // Start server
-app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
+app.listen(PORT, () => {
+  console.log(`🚀 Server running on port ${PORT}`);
+  console.log(`🌐 Allowed CORS origins: ${allowedOrigins.join(', ')}`);
+});
