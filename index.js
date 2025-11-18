@@ -193,22 +193,132 @@ app.post('/api/upload-payment', upload.single('proof'), async (req, res) => {
   }
 });
 
-// Email Function
-async function sendPaymentNotificationEmail(data) {
-  await resend.emails.send({
-    from: 'Payment System <onboarding@resend.dev>',
-    to: process.env.ADMIN_EMAIL,
-    subject: `Pembayaran Baru dari ${data.name} - #${data.id}`,
-    html: `
-      <h1>Pembayaran Baru</h1>
-      <p><b>ID:</b> ${data.id}</p>
-      <p><b>Nama:</b> ${data.name}</p>
-      <p><b>No WA:</b> ${data.phone_number}</p>
-      <p><b>Metode:</b> ${data.payment_method}</p>
-      <p><b>Alasan:</b> ${data.reason}</p>
-      <p><a href="${data.proofUrl}">Lihat Bukti Pembayaran</a></p>
-    `,
+// Email Function dengan template HTML yang lebih lengkap
+async function sendPaymentNotificationEmail(paymentData) {
+  const { name, phone_number, payment_method, reason, proofUrl, id } =
+    paymentData;
+
+  const emailContent = `
+    <!DOCTYPE html>
+    <html>
+    <head>
+      <style>
+        body {
+          font-family: Arial, sans-serif;
+          line-height: 1.6;
+          color: #333;
+          max-width: 600px;
+          margin: 0 auto;
+          padding: 20px;
+        }
+        .header {
+          background-color: #4f46e5;
+          color: white;
+          padding: 20px;
+          text-align: center;
+          border-radius: 5px 5px 0 0;
+        }
+        .content {
+          background-color: #f9fafb;
+          padding: 20px;
+          border: 1px solid #e5e7eb;
+          border-radius: 0 0 5px 5px;
+        }
+        .detail-row {
+          display: flex;
+          justify-content: space-between;
+          margin-bottom: 10px;
+          padding-bottom: 10px;
+          border-bottom: 1px solid #e5e7eb;
+        }
+        .detail-label {
+          font-weight: bold;
+          color: #4b5563;
+        }
+        .detail-value {
+          color: #1f2937;
+        }
+        .proof-link {
+          display: inline-block;
+          background-color: #4f46e5;
+          color: white;
+          padding: 10px 15px;
+          text-decoration: none;
+          border-radius: 4px;
+          margin-top: 15px;
+        }
+        .footer {
+          margin-top: 20px;
+          font-size: 12px;
+          color: #6b7280;
+          text-align: center;
+        }
+      </style>
+    </head>
+    <body>
+      <div class="header">
+        <h1>Pembayaran Baru Diterima</h1>
+      </div>
+      <div class="content">
+        <p>Ada pembayaran baru yang telah diupload oleh pelanggan. Berikut detailnya:</p>
+
+        <div class="detail-row">
+          <span class="detail-label">ID Pembayaran:</span>
+          <span class="detail-value">#${id}</span>
+        </div>
+
+        <div class="detail-row">
+          <span class="detail-label">Nama Pelanggan:</span>
+          <span class="detail-value">${name}</span>
+        </div>
+
+        <div class="detail-row">
+          <span class="detail-label">Nomor WhatsApp:</span>
+          <span class="detail-value">${phone_number}</span>
+        </div>
+
+        <div class="detail-row">
+          <span class="detail-label">Metode Pembayaran:</span>
+          <span class="detail-value">${payment_method}</span>
+        </div>
+
+        <div class="detail-row">
+          <span class="detail-label">Alasan Pembayaran:</span>
+          <span class="detail-value">${reason}</span>
+        </div>
+
+        <div class="detail-row">
+          <span class="detail-label">Waktu:</span>
+          <span class="detail-value">${new Date().toLocaleString(
+            'id-ID'
+          )}</span>
+        </div>
+
+        <p><strong>Bukti Pembayaran:</strong></p>
+        <a href="${proofUrl}" class="proof-link">Lihat Bukti Pembayaran</a>
+
+        <div class="footer">
+          <p>Email ini dikirim secara otomatis oleh sistem pembayaran Khairi.</p>
+          <p>Harap segera verifikasi pembayaran ini dan hubungi pelanggan jika diperlukan.</p>
+        </div>
+      </div>
+    </body>
+    </html>
+  `;
+
+  // Send email using Resend
+  const { data, error } = await resend.emails.send({
+    from: 'Khairi Payment <onboarding@resend.dev>',
+    to: [process.env.ADMIN_EMAIL],
+    subject: `Pembayaran Baru dari ${name} - #${id}`,
+    html: emailContent,
   });
+
+  if (error) {
+    throw error;
+  }
+
+  console.log('Email sent successfully:', data);
 }
 
 // Get All Payments
