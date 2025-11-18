@@ -12,11 +12,29 @@ const PORT = process.env.PORT || 3000;
 // Resend Email
 const resend = new Resend(process.env.RESEND_API_KEY);
 
-// CORS
+// CORS - Perbarui untuk mendukung multiple origins
+const allowedOrigins = [
+  process.env.CORS_ORIGIN || 'https://khairi-payment-v2.vercel.app',
+  'http://localhost:4321', // Untuk development lokal
+  'http://localhost:3000', // Untuk development lokal
+];
+
 app.use(
   cors({
-    origin: process.env.CORS_ORIGIN || '*',
+    origin: function (origin, callback) {
+      // Allow requests with no origin (like mobile apps or curl requests)
+      if (!origin) return callback(null, true);
+
+      if (allowedOrigins.indexOf(origin) !== -1) {
+        return callback(null, true);
+      } else {
+        console.log('CORS blocked origin:', origin);
+        return callback(new Error('Not allowed by CORS'));
+      }
+    },
     credentials: true,
+    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization'],
   })
 );
 
