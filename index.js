@@ -24,7 +24,7 @@ app.use(
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-// Multer — Memory Storage (NO FILESYSTEM)
+// Multer — Memory Storage
 const upload = multer({
   storage: multer.memoryStorage(),
   limits: { fileSize: 5 * 1024 * 1024 },
@@ -37,11 +37,11 @@ const upload = multer({
 
 // S3 / Leapcell Storage Client
 const s3 = new S3Client({
-  region: process.env.LEAPCELL_REGION,
-  endpoint: process.env.LEAPCELL_ENDPOINT,
+  region: process.env.S3_REGION,
+  endpoint: process.env.S3_ENDPOINT,
   credentials: {
-    accessKeyId: process.env.LEAPCELL_ACCESS_KEY,
-    secretAccessKey: process.env.LEAPCELL_SECRET_KEY,
+    accessKeyId: process.env.S3_KEY_ID,
+    secretAccessKey: process.env.S3_KEY_SECRET,
   },
 });
 
@@ -76,17 +76,17 @@ app.post('/api/upload-payment', upload.single('proof'), async (req, res) => {
       .toString(36)
       .substring(2)}.${req.file.originalname.split('.').pop()}`;
 
-    // Upload to Leapcell
+    // Upload to S3 / Leapcell
     await s3.send(
       new PutObjectCommand({
-        Bucket: process.env.LEAPCELL_BUCKET,
+        Bucket: process.env.S3_BUCKET,
         Key: fileName,
         Body: req.file.buffer,
         ContentType: req.file.mimetype,
       })
     );
 
-    const fileUrl = `${process.env.LEAPCELL_ENDPOINT}/${process.env.LEAPCELL_BUCKET}/${fileName}`;
+    const fileUrl = `${process.env.S3_ENDPOINT}/${process.env.S3_BUCKET}/${fileName}`;
 
     // Save to DB
     const stmt = db.prepare(
