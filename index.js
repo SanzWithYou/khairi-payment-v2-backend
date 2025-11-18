@@ -31,18 +31,21 @@ const upload = multer({
 
 // PostgreSQL Client
 const db = new Client({
-  user: process.env.MYAPP_DB_USER,
-  password: process.env.MYAPP_DB_PASS,
-  host: process.env.MYAPP_DB_HOST,
-  port: process.env.MYAPP_DB_PORT,
-  database: process.env.MYAPP_DB_NAME,
-  ssl: { rejectUnauthorized: false },
+  user: process.env.DB_USER,
+  password: process.env.DB_PASS,
+  host: process.env.DB_HOST,
+  port: process.env.DB_PORT,
+  database: process.env.DB_NAME,
+  ssl: process.env.DB_SSL === 'true' ? { rejectUnauthorized: false } : false,
 });
 
-db.connect();
+db.connect()
+  .then(() => console.log('Connected to PostgreSQL database'))
+  .catch((err) => console.error('Connection error', err.stack));
 
 // Create table if not exists
-db.query(`
+db.query(
+  `
   CREATE TABLE IF NOT EXISTS payments (
     id SERIAL PRIMARY KEY,
     name TEXT NOT NULL,
@@ -52,16 +55,20 @@ db.query(`
     proof_url TEXT NOT NULL,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
   );
-`);
+`
+)
+  .then(() => console.log('Payments table ready'))
+  .catch((err) => console.error('Table creation error', err.stack));
 
 // S3 / Leapcell Object Storage
 const s3 = new S3Client({
-  region: process.env.MYAPP_S3_REGION,
-  endpoint: process.env.MYAPP_S3_ENDPOINT,
+  region: process.env.S3_REGION,
+  endpoint: process.env.S3_ENDPOINT,
   credentials: {
-    accessKeyId: process.env.MYAPP_S3_KEY_ID,
-    secretAccessKey: process.env.MYAPP_S3_KEY_SECRET,
+    accessKeyId: process.env.S3_KEY_ID,
+    secretAccessKey: process.env.S3_KEY_SECRET,
   },
+  forcePathStyle: true, // Penting untuk Leapcell
 });
 
 // Upload Payment
@@ -81,14 +88,14 @@ app.post('/api/upload-payment', upload.single('proof'), async (req, res) => {
     // Upload to S3
     await s3.send(
       new PutObjectCommand({
-        Bucket: process.env.MYAPP_S3_BUCKET,
+        Bucket: process.env.S3_BUCKET,
         Key: fileName,
         Body: req.file.buffer,
         ContentType: req.file.mimetype,
       })
     );
 
-    const fileUrl = `${process.env.MYAPP_S3_ENDPOINT}/${process.env.MYAPP_S3_BUCKET}/${fileName}`;
+    const fileUrl = `${process.env.S3_ENDPOINT}/${process.env.S3_BUCKET}/${fileName}`;
 
     // Insert to PostgreSQL
     const insertQuery = `
@@ -164,7 +171,30 @@ app.get('/api/payments', async (req, res) => {
     );
     res.json({ success: true, data: result.rows });
   } catch (err) {
-    res.status(500).json({ error: 'DB error' });
+    console.error('Database error:', err);
+    res.status(500).json({ error: 'DB error', detail: err.message });
+  }
+});
+
+// Health check endpoint
+app.get('/health', async (req, res) => {
+  try {
+    // Check database
+    await db.query('SELECT NOW()');
+
+    // Check S3 connection
+    await s3.config.credentials();
+
+    res.json({
+      status: 'OK',
+      database: 'Connected',
+      storage: 'Connected',
+    });
+  } catch (error) {
+    res.status(500).json({
+      status: 'Error',
+      error: error.message,
+    });
   }
 });
 
